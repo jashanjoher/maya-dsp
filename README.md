@@ -7,6 +7,7 @@ Private home for the Maya DSP plugin suite.
 - plugins/: one folder per plugin (for example the SonicWaveshaper waveshaper, and the reverb plugin).
 - shared/: code and assets used by more than one plugin (DSP helpers, UI components, presets).
 - docs/REVERB_SPEC.md: the acoustic environment specification for the reverb engine.
+- docs/CI.md: the cross-platform build matrix (macOS DMG, Windows zip).
 
 ## Architecture
 
@@ -18,3 +19,6 @@ To be written. The reverb spec describes a hybrid convolution and FDN engine.
 - [ ] Move shared DSP code into shared/
 - [ ] Reverb plugin skeleton in plugins/
 - [ ] Bundle packaging and licensing rules
+- [x] Cross-platform CI matrix documented in docs/CI.md
+- [ ] Code signing and notarization (macOS, Windows)
+- [ ] Windows installer (currently a zip)
