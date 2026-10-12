@@ -13,7 +13,8 @@ public:
     void prepare (const juce::dsp::ProcessSpec& spec);
     void reset();
     void setSize (float normalisedSize);       // maps SIZE control (TODO)
-    void loadImpulseResponse (const juce::AudioBuffer<float>& ir, double irSampleRate);
+    // Takes the buffer by value: JUCE's Convolution::loadImpulseResponse needs an rvalue.
+    void loadImpulseResponse (juce::AudioBuffer<float> ir, double irSampleRate);
     void loadEnvironment (const EnvironmentProfile& profile, double sampleRate);
     void process (juce::dsp::ProcessContextReplacing<float>& context);
 

@@ -95,7 +95,7 @@ void LateFDN::updateDampers()
     const auto cutoff = juce::jlimit (200.0f, (float) sampleRate * 0.45f,
                                       juce::jmap (brightness01, 800.0f, 12000.0f) * dampingScale);
     for (auto& f : dampers)
-        *f.coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, cutoff);
+        f.coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, cutoff);
 }
 
 void LateFDN::applyHadamard (std::array<float, numDelays>& v) const

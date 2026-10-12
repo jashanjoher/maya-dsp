@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <utility>
 
 namespace maya
 {
@@ -49,12 +50,12 @@ void EarlyReflections::setSize (float normalisedSize)
     juce::ignoreUnused (normalisedSize);
 }
 
-void EarlyReflections::loadImpulseResponse (const juce::AudioBuffer<float>& ir, double irSampleRate)
+void EarlyReflections::loadImpulseResponse (juce::AudioBuffer<float> ir, double irSampleRate)
 {
     if (! prepared)
         return;
 
-    convolution.loadImpulseResponse (ir, irSampleRate,
+    convolution.loadImpulseResponse (std::move (ir), irSampleRate,
                                      juce::dsp::Convolution::Stereo::yes,
                                      juce::dsp::Convolution::Trim::no,
                                      juce::dsp::Convolution::Normalise::yes);
