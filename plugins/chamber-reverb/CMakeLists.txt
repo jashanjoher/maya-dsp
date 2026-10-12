@@ -32,6 +32,7 @@ juce_add_plugin(MayaChamber
 target_sources(MayaChamber PRIVATE
   Source/PluginProcessor.cpp
   Source/PluginEditor.cpp
+  Source/ui/MayaIndustrialLookAndFeel.h
   Source/dsp/EarlyReflections.cpp
   Source/dsp/LateFDN.cpp
   Source/dsp/ResonatorBank.cpp
