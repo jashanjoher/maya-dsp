@@ -1,17 +1,21 @@
 #pragma once
 #include "PluginProcessor.h"
+#include "ui/MayaIndustrialLookAndFeel.h"
 
 class MayaChamberEditor : public juce::AudioProcessorEditor
 {
 public:
     explicit MayaChamberEditor (MayaChamberProcessor&);
-    ~MayaChamberEditor() override = default;
+    ~MayaChamberEditor() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
+    juce::Array<juce::Rectangle<int>> getSectionRects() const;
+
     MayaChamberProcessor& processor;
+    MayaIndustrialLookAndFeel lookAndFeel;
     juce::ComboBox environmentSelector;
     juce::OwnedArray<juce::Slider> knobs;
     juce::OwnedArray<juce::Label> knobLabels;
