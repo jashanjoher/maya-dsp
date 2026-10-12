@@ -13,6 +13,10 @@ Private home for the Maya DSP plugin suite.
 
 To be written. The reverb spec describes a hybrid convolution and FDN engine.
 
+## macOS DMG build
+
+The workflow .github/workflows/build-mac.yml runs on every push to main and produces the MayaChamber-macOS-dmg artifact (universal arm64 and x86_64 build, packaged by packaging/make-chamber-dmg.sh).
+
 ## Roadmap
 
 - [ ] Finalize the reverb spec in docs/REVERB_SPEC.md
