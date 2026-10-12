@@ -26,12 +26,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout MayaChamberProcessor::create
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "width", 1 }, "Width", 0.0f, 1.0f, 1.0f));
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "mix", 1 }, "Mix", 0.0f, 1.0f, 0.3f));
 
+    // Environment selector: one choice per environment, in enum order.
+    StringArray environmentNames;
+    for (int i = 0; i < (int) maya::Environment::Count; ++i)
+        environmentNames.add (maya::getEnvironmentInfo ((maya::Environment) i).name);
+    params.push_back (std::make_unique<AudioParameterChoice> (ParameterID { "environment", 1 }, "Environment", environmentNames, 0));
+
     return { params.begin(), params.end() };
 }
 
 void MayaChamberProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) samplesPerBlock, 2 };
+    currentSampleRate = sampleRate;
+    appliedEnvironment = -1; // force the environment to be re-applied after prepare
 
     earlyReflections.prepare (spec);
     resonators.prepare (spec);
@@ -57,7 +65,19 @@ bool MayaChamberProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
 
 void MayaChamberProcessor::updateDspFromParameters()
 {
-    const auto decay = apvts.getRawParameterValue ("decay")->load();
+    const auto envIndex = (int) apvts.getRawParameterValue ("environment")->load();
+    const auto& profile = maya::getEnvironmentProfile ((maya::Environment) envIndex);
+
+    // Only rebuild the environment-dependent state when the selection actually changes.
+    if (envIndex != appliedEnvironment)
+    {
+        appliedEnvironment = envIndex;
+        earlyReflections.loadEnvironment (profile, currentSampleRate);
+        lateTail.setEnvironmentShape (profile.fdnScale, profile.dampingScale);
+        resonators.setFundamental (profile.fundamentalHz, profile.inharmonicity);
+    }
+
+    const auto decay = apvts.getRawParameterValue ("decay")->load() * profile.t60Scale;
     const auto brightness = apvts.getRawParameterValue ("brightness")->load();
     const auto density = apvts.getRawParameterValue ("density")->load();
     const auto resonance = apvts.getRawParameterValue ("resonance")->load();
@@ -92,7 +112,7 @@ void MayaChamberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
             buffer.setSample (ch, n, preDelay.popSample (ch));
         }
 
-    // 2. Early reflections (partitioned convolution skeleton)
+    // 2. Early reflections (partitioned convolution with the environment IR)
     juce::dsp::AudioBlock<float> block (buffer);
     juce::dsp::ProcessContextReplacing<float> context (block);
     earlyReflections.process (context);

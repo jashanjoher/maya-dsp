@@ -4,9 +4,9 @@
 
 namespace maya
 {
-// Modal resonator bank: a set of parallel two-pole resonators (modes) excited by the input.
-// SKELETON: modal frequencies are placeholders; pitch tracking and per-environment
-// mode tables are TODO.
+// Modal resonator bank: parallel band-pass modes excited by the input.
+// Mode frequencies follow a harmonic series stretched by inharmonicity, so
+// metallic and bell-like environments ring at non-integer partials.
 class ResonatorBank
 {
 public:
@@ -14,8 +14,8 @@ public:
 
     void prepare (const juce::dsp::ProcessSpec& spec);
     void reset();
-    void setResonance (float resonance01);   // maps RESONANCE (mode Q)
-    void setFundamental (float hz);          // base frequency for the mode series
+    void setResonance (float resonance01);                          // maps RESONANCE (mode Q)
+    void setFundamental (float hz, float inharmonicity = 0.0f);    // base frequency and stretch of the mode series
     void process (juce::AudioBuffer<float>& buffer);
 
 private:
@@ -23,5 +23,6 @@ private:
     std::array<float, numModes> modeGains {};
     double sampleRate = 44100.0;
     float fundamentalHz = 110.0f;
+    float inharmonicityAmt = 0.0f;
 };
 } // namespace maya

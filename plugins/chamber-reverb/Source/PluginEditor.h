@@ -17,6 +17,7 @@ private:
     MayaChamberProcessor& processor;
     MayaIndustrialLookAndFeel lookAndFeel;
     juce::ComboBox environmentSelector;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> environmentAttachment;
     juce::OwnedArray<juce::Slider> knobs;
     juce::OwnedArray<juce::Label> knobLabels;
     juce::OwnedArray<juce::AudioProcessorValueTreeState::SliderAttachment> attachments;

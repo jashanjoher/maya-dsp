@@ -37,19 +37,11 @@ MayaChamberEditor::MayaChamberEditor (MayaChamberProcessor& p)
     setLookAndFeel (&lookAndFeel);
     setSize (720, 420);
 
-    // Environment selector: one entry per Maya Chamber environment (24 total).
-    environmentSelector.addSectionHeading ("Natural");
-    environmentSelector.addSectionHeading ("Architectural");
-    environmentSelector.addSectionHeading ("Resonant Objects");
-    environmentSelector.addSectionHeading ("Impossible / Abstract");
+    // Environment selector: one item per environment, bound to the "environment" choice parameter.
     for (int i = 0; i < (int) maya::Environment::Count; ++i)
         environmentSelector.addItem (maya::getEnvironmentInfo ((maya::Environment) i).name, i + 1);
-    environmentSelector.setSelectedId ((int) processor.getEnvironment() + 1, juce::dontSendNotification);
-    environmentSelector.onChange = [this]
-    {
-        processor.setEnvironment ((maya::Environment) (environmentSelector.getSelectedId() - 1));
-    };
     addAndMakeVisible (environmentSelector);
+    environmentAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (processor.apvts, "environment", environmentSelector);
 
     for (int i = 0; i < (int) knobIds.size(); ++i)
     {

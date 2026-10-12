@@ -38,14 +38,20 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
-    maya::Environment getEnvironment() const { return environment; }
-    void setEnvironment (maya::Environment env) { environment = env; }
+    // The environment is stored in the "environment" choice parameter, so it is saved with presets.
+    maya::Environment getEnvironment() const { return (maya::Environment) (int) apvts.getRawParameterValue ("environment")->load(); }
+    void setEnvironment (maya::Environment env)
+    {
+        if (auto* param = apvts.getParameter ("environment"))
+            param->setValueNotifyingHost (param->convertTo0to1 ((float) (int) env));
+    }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void updateDspFromParameters();
 
-    maya::Environment environment = maya::Environment::DeepForest;
+    int appliedEnvironment = -1;
+    double currentSampleRate = 44100.0;
     maya::EarlyReflections earlyReflections;
     maya::ResonatorBank resonators;
     maya::LateFDN lateTail;

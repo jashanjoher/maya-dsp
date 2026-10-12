@@ -11,7 +11,7 @@ void ResonatorBank::prepare (const juce::dsp::ProcessSpec& spec)
         m.setType (juce::dsp::StateVariableTPTFilterType::bandpass);
     }
     setResonance (0.5f);
-    setFundamental (fundamentalHz);
+    setFundamental (fundamentalHz, inharmonicityAmt);
 }
 
 void ResonatorBank::reset()
@@ -27,13 +27,15 @@ void ResonatorBank::setResonance (float resonance01)
         m.setResonance (q);
 }
 
-void ResonatorBank::setFundamental (float hz)
+void ResonatorBank::setFundamental (float hz, float inharmonicity)
 {
     fundamentalHz = hz;
-    // Harmonic series placeholder, gains fall off with mode index.
+    inharmonicityAmt = inharmonicity;
     for (int i = 0; i < numModes; ++i)
     {
-        const float freq = juce::jlimit (20.0f, (float) sampleRate * 0.45f, hz * (float) (i + 1));
+        // Partial i sits at (i+1) times the fundamental, stretched by inharmonicity for higher modes.
+        const float stretch = 1.0f + inharmonicityAmt * 0.01f * (float) (i * i);
+        const float freq = juce::jlimit (20.0f, (float) sampleRate * 0.45f, hz * (float) (i + 1) * stretch);
         modes[(size_t) i].setCutoffFrequency (freq);
         modeGains[(size_t) i] = 1.0f / (float) (i + 1);
     }
