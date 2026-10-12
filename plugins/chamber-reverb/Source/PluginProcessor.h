@@ -3,11 +3,12 @@
 #include "dsp/Environments.h"
 #include "dsp/EarlyReflections.h"
 #include "dsp/LateFDN.h"
+#include "dsp/NeuralDrive.h"
 #include "dsp/ResonatorBank.h"
 
 // Hybrid signal chain from docs/REVERB_SPEC.md:
 // INPUT -> Pre-delay -> Early reflections (partitioned convolution) -> Diffusion
-//       -> Modal resonator bank -> FDN late tail -> Spectral shaping -> OUTPUT
+//       -> Modal resonator bank -> FDN late tail -> Neural drive (NAM) -> Dry/wet mix -> OUTPUT
 class MayaChamberProcessor : public juce::AudioProcessor
 {
 public:
@@ -55,6 +56,7 @@ private:
     maya::EarlyReflections earlyReflections;
     maya::ResonatorBank resonators;
     maya::LateFDN lateTail;
+    maya::NeuralDrive neuralDrive;
 
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> preDelay { 96000 };
 

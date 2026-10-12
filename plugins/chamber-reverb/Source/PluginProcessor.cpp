@@ -7,6 +7,8 @@ MayaChamberProcessor::MayaChamberProcessor()
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    // The NAM default model is embedded at build time. If it fails to load, the stage is bypassed.
+    neuralDrive.loadEmbeddedModel();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout MayaChamberProcessor::createParameterLayout()
@@ -25,6 +27,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout MayaChamberProcessor::create
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "predelay", 1 }, "Pre-Delay", NormalisableRange<float> (0.0f, 250.0f, 0.1f), 20.0f, "ms"));
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "width", 1 }, "Width", 0.0f, 1.0f, 1.0f));
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "mix", 1 }, "Mix", 0.0f, 1.0f, 0.3f));
+
+    // Neural drive (NAM). Drive is the input gain into the model, Neural Model turns the stage on,
+    // and Neural Output is the trim applied after the model. The stage is off by default.
+    params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "drive", 1 }, "Drive", NormalisableRange<float> (0.0f, 24.0f, 0.01f), 6.0f, "dB"));
+    params.push_back (std::make_unique<AudioParameterBool> (ParameterID { "neural_model", 1 }, "Neural Model", false));
+    params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "neural_output", 1 }, "Neural Output", NormalisableRange<float> (-24.0f, 12.0f, 0.01f), 0.0f, "dB"));
 
     // Environment selector: one choice per environment, in enum order.
     StringArray environmentNames;
@@ -45,6 +53,7 @@ void MayaChamberProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     resonators.prepare (spec);
     lateTail.prepare (spec);
     preDelay.prepare (spec);
+    neuralDrive.prepare (sampleRate, samplesPerBlock);
 
     updateDspFromParameters();
 }
@@ -88,6 +97,10 @@ void MayaChamberProcessor::updateDspFromParameters()
     lateTail.setDensity (density);
     resonators.setResonance (resonance);
     earlyReflections.setSize (size);
+
+    neuralDrive.setEnabled (apvts.getRawParameterValue ("neural_model")->load() > 0.5f);
+    neuralDrive.setDriveDb (apvts.getRawParameterValue ("drive")->load());
+    neuralDrive.setOutputDb (apvts.getRawParameterValue ("neural_output")->load());
 }
 
 void MayaChamberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -123,7 +136,10 @@ void MayaChamberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     // 4. FDN late tail (adds its own output into the buffer)
     lateTail.process (buffer);
 
-    // 5. Dry/wet mix
+    // 5. Neural drive (NAM). Runs on the wet signal, before the dry/wet blend. Bypassed when off.
+    neuralDrive.process (buffer);
+
+    // 6. Dry/wet mix
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
         for (int n = 0; n < numSamples; ++n)
         {
