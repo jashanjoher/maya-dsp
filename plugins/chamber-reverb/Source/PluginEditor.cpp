@@ -2,148 +2,158 @@
 
 namespace
 {
-constexpr std::array<const char*, 10> knobIds { "size", "decay", "density", "diffusion", "resonance",
-                                              "brightness", "modulation", "predelay", "width", "mix" };
-constexpr std::array<const char*, 10> knobNames { "SIZE", "DECAY", "DENSITY", "DIFFUSION", "RESONANCE",
-                                                 "BRIGHTNESS", "MODULATION", "PRE-DELAY", "WIDTH", "MIX" };
-
-// Layout: title band, then three sections (selector, early reflections row, FDN matrix row).
-// Each section reserves a header band at its top so headers never overlap controls.
-constexpr std::array<const char*, 3> sectionTitles { "SYSTEM SPEC // MC-24",
-                                                     "EARLY REFLECTIONS // CONV-01",
-                                                     "FDN MATRIX // 8-LINE" };
-constexpr int outerMargin = 12;
-constexpr int titleBandHeight = 52;
-constexpr int sectionHeaderHeight = 14;
-constexpr int selectorHeight = 32;
-constexpr int sectionGap = 4;
-constexpr int knobLabelHeight = 18;
-constexpr int knobCols = 5;
-
-void drawBolt (juce::Graphics& g, juce::Point<float> c)
-{
-    g.setColour (juce::Colour (0xff0b0c0d));
-    g.fillEllipse (c.x - 4.5f, c.y - 4.5f, 9.0f, 9.0f);
-    g.setColour (juce::Colour (0xff6d6e70));
-    g.fillEllipse (c.x - 3.5f, c.y - 3.5f, 7.0f, 7.0f);
-    g.setColour (juce::Colour (0xffe9e6dc).withAlpha (0.6f));
-    g.drawLine (c.x - 2.5f, c.y, c.x + 2.5f, c.y, 1.0f);
-}
+constexpr int editorWidth = 620;
+constexpr int editorHeight = 400;
+constexpr int outerMargin = 16;
+constexpr int titleBandHeight = 34;
+constexpr int footerHeight = 16;
+constexpr int captionHeight = 14;
+constexpr int knobRowHeight = 112;
+constexpr int sectionGap = 10;
+constexpr int knobColumns = 5;
+constexpr int environmentBoxWidth = 320;
+constexpr int environmentBoxHeight = 28;
 }
 
 MayaChamberEditor::MayaChamberEditor (MayaChamberProcessor& p)
     : AudioProcessorEditor (&p), processor (p)
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (720, 420);
+    setSize (editorWidth, editorHeight);
+
+    // Section captions
+    setupSectionLabel (environmentLabel, "ENVIRONMENT");
+    setupSectionLabel (coreLabel, "CORE REVERB");
+    setupSectionLabel (neuralLabel, "NEURAL DRIVE");
 
     // Environment selector: one item per environment, bound to the "environment" choice parameter.
     for (int i = 0; i < (int) maya::Environment::Count; ++i)
-        environmentSelector.addItem (maya::getEnvironmentInfo ((maya::Environment) i).name, i + 1);
-    addAndMakeVisible (environmentSelector);
-    environmentAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (processor.apvts, "environment", environmentSelector);
+        environmentBox.addItem (maya::getEnvironmentInfo ((maya::Environment) i).name, i + 1);
+    addAndMakeVisible (environmentBox);
+    environmentAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (processor.apvts, "environment", environmentBox);
 
-    for (int i = 0; i < (int) knobIds.size(); ++i)
-    {
-        auto* slider = knobs.add (new juce::Slider (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow));
-        slider->setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 16);
-        addAndMakeVisible (slider);
+    // Core reverb knobs. Damping is bound to the "brightness" parameter, which is the damping control in the DSP.
+    setupKnob (preDelaySlider, preDelayLabel, "PRE-DELAY");
+    preDelaySlider.setTextValueSuffix (" ms");
+    setupKnob (sizeSlider, sizeLabel, "SIZE");
+    sizeSlider.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100.0)) + " %"; };
+    sizeSlider.valueFromTextFunction = [] (const juce::String& t) { return t.getDoubleValue() / 100.0; };
+    setupKnob (decaySlider, decayLabel, "DECAY");
+    decaySlider.setTextValueSuffix (" s");
+    setupKnob (dampingSlider, dampingLabel, "DAMPING");
+    dampingSlider.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100.0)) + " %"; };
+    dampingSlider.valueFromTextFunction = [] (const juce::String& t) { return t.getDoubleValue() / 100.0; };
+    setupKnob (mixSlider, mixLabel, "MIX");
+    mixSlider.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (v * 100.0)) + " %"; };
+    mixSlider.valueFromTextFunction = [] (const juce::String& t) { return t.getDoubleValue() / 100.0; };
 
-        auto* label = knobLabels.add (new juce::Label ({}, knobNames[(size_t) i]));
-        label->setJustificationType (juce::Justification::centred);
-        label->setFont (MayaIndustrialLookAndFeel::silkFont (10.0f, true));
-        addAndMakeVisible (label);
+    // Neural drive knobs and enable switch
+    setupKnob (driveSlider, driveLabel, "DRIVE");
+    driveSlider.setTextValueSuffix (" dB");
+    setupKnob (outputSlider, outputLabel, "OUTPUT");
+    outputSlider.setTextValueSuffix (" dB");
 
-        attachments.add (new juce::AudioProcessorValueTreeState::SliderAttachment (processor.apvts, knobIds[(size_t) i], *slider));
-    }
+    neuralToggle.setButtonText ("NEURAL MODEL");
+    addAndMakeVisible (neuralToggle);
+    neuralAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (processor.apvts, "neural_model", neuralToggle);
+
+    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    sliderAttachments.push_back (std::make_unique<SliderAttachment> (processor.apvts, "predelay", preDelaySlider));
+    sliderAttachments.push_back (std::make_unique<SliderAttachment> (processor.apvts, "size", sizeSlider));
+    sliderAttachments.push_back (std::make_unique<SliderAttachment> (processor.apvts, "decay", decaySlider));
+    sliderAttachments.push_back (std::make_unique<SliderAttachment> (processor.apvts, "brightness", dampingSlider));
+    sliderAttachments.push_back (std::make_unique<SliderAttachment> (processor.apvts, "mix", mixSlider));
+    sliderAttachments.push_back (std::make_unique<SliderAttachment> (processor.apvts, "drive", driveSlider));
+    sliderAttachments.push_back (std::make_unique<SliderAttachment> (processor.apvts, "neural_output", outputSlider));
 }
 
 MayaChamberEditor::~MayaChamberEditor()
 {
+    // Attachments are destroyed before the sliders they point to, so clear the look and feel first.
     setLookAndFeel (nullptr);
 }
 
-juce::Array<juce::Rectangle<int>> MayaChamberEditor::getSectionRects() const
+void MayaChamberEditor::setupKnob (juce::Slider& slider, juce::Label& label, const juce::String& caption)
 {
-    // Single source of truth for paint() and resized(). Returns exactly three rectangles,
-    // each starting with its header band, and none overlapping the title band.
-    auto body = getLocalBounds().reduced (outerMargin);
-    body.removeFromTop (titleBandHeight);
+    slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 16);
+    addAndMakeVisible (slider);
 
-    juce::Array<juce::Rectangle<int>> rects;
-    rects.add (body.removeFromTop (sectionHeaderHeight + 6 + selectorHeight));
-    body.removeFromTop (sectionGap);
+    label.setText (caption, juce::dontSendNotification);
+    label.setJustificationType (juce::Justification::centred);
+    label.setFont (CuteLookAndFeel::uiFont (9.0f, true));
+    label.setColour (juce::Label::textColourId, CuteLookAndFeel::ink());
+    addAndMakeVisible (label);
+}
 
-    const int rowHeight = (body.getHeight() - 2 * sectionGap) / 2;
-    rects.add (body.removeFromTop (rowHeight));
-    body.removeFromTop (sectionGap);
-    rects.add (body);
-    return rects;
+void MayaChamberEditor::setupSectionLabel (juce::Label& label, const juce::String& caption)
+{
+    label.setText (caption, juce::dontSendNotification);
+    label.setJustificationType (juce::Justification::centred);
+    label.setFont (CuteLookAndFeel::uiFont (9.0f, true));
+    label.setColour (juce::Label::textColourId, CuteLookAndFeel::tealDeep());
+    addAndMakeVisible (label);
 }
 
 void MayaChamberEditor::paint (juce::Graphics& g)
 {
-    using namespace juce;
-    const auto bounds = getLocalBounds().toFloat();
+    auto body = getLocalBounds().toFloat().reduced (6.0f);
 
-    // Matte powder-coated chassis with a faint vignette
-    g.fillAll (Colour (0xff2b2c2e));
-    ColourGradient vignette (Colours::transparentBlack, bounds.getCentre(), Colours::black.withAlpha (0.35f), { bounds.getX(), bounds.getY() }, true);
-    g.setGradientFill (vignette);
-    g.fillAll();
+    // soft drop shadow under the pedal
+    g.setColour (juce::Colour (0x40501a33));
+    g.fillRoundedRectangle (body.translated (0.0f, 6.0f), 20.0f);
 
-    // Recessed outer bezel
-    g.setColour (Colour (0xff0b0c0d));
-    g.drawRoundedRectangle (bounds.reduced (6.0f), 4.0f, 2.0f);
+    // bubblegum faceplate
+    juce::ColourGradient face (CuteLookAndFeel::pinkTop(), 0.0f, body.getY(),
+                               CuteLookAndFeel::pinkBottom(), 0.0f, body.getBottom(), false);
+    g.setGradientFill (face);
+    g.fillRoundedRectangle (body, 20.0f);
 
-    // Title band (y 0 to titleBandHeight): silkscreen header, kept clear of sections
-    g.setColour (Colour (0xffe9e6dc));
-    g.setFont (MayaIndustrialLookAndFeel::silkFont (16.0f, true));
-    g.drawText ("MAYA CHAMBER", Rectangle<int> (0, 12, getWidth(), 20), Justification::centred);
-    g.setFont (MayaIndustrialLookAndFeel::silkFont (9.0f));
-    g.setColour (Colour (0xff8d8a80));
-    g.drawText ("ACOUSTIC ENVIRONMENT ENGINE  //  MODEL MC-24", Rectangle<int> (0, 32, getWidth(), 12), Justification::centred);
+    g.setColour (CuteLookAndFeel::pinkDeep());
+    g.drawRoundedRectangle (body.reduced (1.0f), 20.0f, 2.0f);
 
-    // Panel divisions: hairline bezel separator at the top of each section, then its header
-    const auto sections = getSectionRects();
-    for (int i = 0; i < sections.size(); ++i)
-    {
-        const auto r = sections[i];
-        g.setColour (Colour (0xff0b0c0d));
-        g.fillRect (r.getX(), r.getY(), r.getWidth(), 1);
-        g.setColour (Colour (0xffffffff).withAlpha (0.08f));
-        g.fillRect (r.getX(), r.getY() + 1, r.getWidth(), 1);
+    g.setColour (CuteLookAndFeel::ink());
+    g.setFont (CuteLookAndFeel::uiFont (18.0f, true));
+    g.drawText ("maya chamber", getLocalBounds().removeFromTop (titleBandHeight + 4), juce::Justification::centred);
 
-        g.setColour (Colour (0xffb5532f));
-        g.setFont (MayaIndustrialLookAndFeel::silkFont (8.5f, true));
-        g.drawText (sectionTitles[(size_t) i],
-                    Rectangle<int> (r.getX() + 8, r.getY() + 3, r.getWidth() - 16, sectionHeaderHeight - 4),
-                    Justification::left, true);
-    }
-
-    // Corner mounting bolts
-    drawBolt (g, { 16.0f, 16.0f });
-    drawBolt (g, { (float) getWidth() - 16.0f, 16.0f });
-    drawBolt (g, { 16.0f, (float) getHeight() - 16.0f });
-    drawBolt (g, { (float) getWidth() - 16.0f, (float) getHeight() - 16.0f });
+    g.setColour (CuteLookAndFeel::tealDeep());
+    g.setFont (CuteLookAndFeel::uiFont (8.0f, true));
+    g.drawText ("MAYA DSP  CHAMBER REVERB  MC-24", getLocalBounds().removeFromBottom (footerHeight), juce::Justification::centred);
 }
 
 void MayaChamberEditor::resized()
 {
-    const auto sections = getSectionRects();
+    auto area = getLocalBounds().reduced (outerMargin);
+    area.removeFromTop (titleBandHeight);
+    area.removeFromBottom (footerHeight);
 
-    // Section 0: environment selector sits below its header band
-    environmentSelector.setBounds (sections[0].withTrimmedTop (sectionHeaderHeight + 6).reduced (24, 0));
+    // Environment selector
+    environmentLabel.setBounds (area.removeFromTop (captionHeight));
+    environmentBox.setBounds (area.removeFromTop (environmentBoxHeight + 4).withSizeKeepingCentre (environmentBoxWidth, environmentBoxHeight));
+    area.removeFromTop (sectionGap);
 
-    // Sections 1 and 2: knob rows, each cell has a label on top and the knob below
-    for (int i = 0; i < (int) knobs.size(); ++i)
+    // Core reverb knob row
+    coreLabel.setBounds (area.removeFromTop (captionHeight));
+    auto coreRow = area.removeFromTop (knobRowHeight);
+    const int coreCell = coreRow.getWidth() / knobColumns;
+    auto placeKnob = [] (juce::Rectangle<int> cell, juce::Label& label, juce::Slider& slider)
     {
-        const auto sec = sections[1 + i / knobCols];
-        const int col = i % knobCols;
-        const int cellW = sec.getWidth() / knobCols;
-        auto cell = juce::Rectangle<int> (sec.getX() + col * cellW, sec.getY() + sectionHeaderHeight,
-                                          cellW, sec.getHeight() - sectionHeaderHeight);
-        knobLabels[i]->setBounds (cell.removeFromTop (knobLabelHeight).reduced (2, 0));
-        knobs[i]->setBounds (cell.reduced (4));
-    }
+        label.setBounds (cell.removeFromTop (captionHeight));
+        slider.setBounds (cell.reduced (2));
+    };
+    placeKnob (coreRow.removeFromLeft (coreCell), preDelayLabel, preDelaySlider);
+    placeKnob (coreRow.removeFromLeft (coreCell), sizeLabel, sizeSlider);
+    placeKnob (coreRow.removeFromLeft (coreCell), decayLabel, decaySlider);
+    placeKnob (coreRow.removeFromLeft (coreCell), dampingLabel, dampingSlider);
+    placeKnob (coreRow, mixLabel, mixSlider);
+    area.removeFromTop (sectionGap);
+
+    // Neural drive: drive knob, enable switch in the centre, output trim on the right
+    neuralLabel.setBounds (area.removeFromTop (captionHeight));
+    auto neuralRow = area.removeFromTop (knobRowHeight);
+    const int neuralCell = neuralRow.getWidth() / 3;
+    placeKnob (neuralRow.removeFromLeft (neuralCell), driveLabel, driveSlider);
+    auto toggleCell = neuralRow.removeFromLeft (neuralCell);
+    neuralToggle.setBounds (toggleCell.withSizeKeepingCentre (110, 46));
+    placeKnob (neuralRow, outputLabel, outputSlider);
 }

@@ -1,7 +1,13 @@
 #pragma once
-#include "PluginProcessor.h"
-#include "ui/MayaIndustrialLookAndFeel.h"
 
+#include <array>
+#include <memory>
+#include <vector>
+
+#include "PluginProcessor.h"
+#include "ui/CuteLookAndFeel.h"
+
+// Bubblegum pedal editor. Every control is bound to the processor's APVTS.
 class MayaChamberEditor : public juce::AudioProcessorEditor
 {
 public:
@@ -12,15 +18,39 @@ public:
     void resized() override;
 
 private:
-    juce::Array<juce::Rectangle<int>> getSectionRects() const;
+    void setupKnob (juce::Slider& slider, juce::Label& label, const juce::String& caption);
+    void setupSectionLabel (juce::Label& label, const juce::String& caption);
 
     MayaChamberProcessor& processor;
-    MayaIndustrialLookAndFeel lookAndFeel;
-    juce::ComboBox environmentSelector;
+    CuteLookAndFeel lookAndFeel;
+
+    juce::Label environmentLabel;
+    juce::Label coreLabel;
+    juce::Label neuralLabel;
+
+    juce::ComboBox environmentBox;
+
+    juce::Slider preDelaySlider;
+    juce::Slider sizeSlider;
+    juce::Slider decaySlider;
+    juce::Slider dampingSlider;
+    juce::Slider mixSlider;
+    juce::Slider driveSlider;
+    juce::Slider outputSlider;
+
+    juce::Label preDelayLabel;
+    juce::Label sizeLabel;
+    juce::Label decayLabel;
+    juce::Label dampingLabel;
+    juce::Label mixLabel;
+    juce::Label driveLabel;
+    juce::Label outputLabel;
+
+    juce::ToggleButton neuralToggle;
+
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> environmentAttachment;
-    juce::OwnedArray<juce::Slider> knobs;
-    juce::OwnedArray<juce::Label> knobLabels;
-    juce::OwnedArray<juce::AudioProcessorValueTreeState::SliderAttachment> attachments;
+    std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> neuralAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MayaChamberEditor)
 };
