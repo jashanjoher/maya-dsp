@@ -6,8 +6,19 @@ constexpr std::array<const char*, 10> knobIds { "size", "decay", "density", "dif
                                               "brightness", "modulation", "predelay", "width", "mix" };
 constexpr std::array<const char*, 10> knobNames { "SIZE", "DECAY", "DENSITY", "DIFFUSION", "RESONANCE",
                                                  "BRIGHTNESS", "MODULATION", "PRE-DELAY", "WIDTH", "MIX" };
-constexpr std::array<const char*, 4> sectionTitles { "SYSTEM SPEC // MC-24", "EARLY REFLECTIONS // CONV-01",
-                                                     "FDN MATRIX // 8-LINE", "OUTPUT // STEREO" };
+
+// Layout: title band, then three sections (selector, early reflections row, FDN matrix row).
+// Each section reserves a header band at its top so headers never overlap controls.
+constexpr std::array<const char*, 3> sectionTitles { "SYSTEM SPEC // MC-24",
+                                                     "EARLY REFLECTIONS // CONV-01",
+                                                     "FDN MATRIX // 8-LINE" };
+constexpr int outerMargin = 12;
+constexpr int titleBandHeight = 52;
+constexpr int sectionHeaderHeight = 14;
+constexpr int selectorHeight = 32;
+constexpr int sectionGap = 4;
+constexpr int knobLabelHeight = 18;
+constexpr int knobCols = 5;
 
 void drawBolt (juce::Graphics& g, juce::Point<float> c)
 {
@@ -60,6 +71,24 @@ MayaChamberEditor::~MayaChamberEditor()
     setLookAndFeel (nullptr);
 }
 
+juce::Array<juce::Rectangle<int>> MayaChamberEditor::getSectionRects() const
+{
+    // Single source of truth for paint() and resized(). Returns exactly three rectangles,
+    // each starting with its header band, and none overlapping the title band.
+    auto body = getLocalBounds().reduced (outerMargin);
+    body.removeFromTop (titleBandHeight);
+
+    juce::Array<juce::Rectangle<int>> rects;
+    rects.add (body.removeFromTop (sectionHeaderHeight + 6 + selectorHeight));
+    body.removeFromTop (sectionGap);
+
+    const int rowHeight = (body.getHeight() - 2 * sectionGap) / 2;
+    rects.add (body.removeFromTop (rowHeight));
+    body.removeFromTop (sectionGap);
+    rects.add (body);
+    return rects;
+}
+
 void MayaChamberEditor::paint (juce::Graphics& g)
 {
     using namespace juce;
@@ -72,23 +101,22 @@ void MayaChamberEditor::paint (juce::Graphics& g)
     g.fillAll();
 
     // Recessed outer bezel
-    auto faceplate = bounds.reduced (6.0f);
     g.setColour (Colour (0xff0b0c0d));
-    g.drawRoundedRectangle (faceplate, 4.0f, 2.0f);
+    g.drawRoundedRectangle (bounds.reduced (6.0f), 4.0f, 2.0f);
 
-    // Title block: silkscreen header
+    // Title band (y 0 to titleBandHeight): silkscreen header, kept clear of sections
     g.setColour (Colour (0xffe9e6dc));
     g.setFont (MayaIndustrialLookAndFeel::silkFont (16.0f, true));
-    g.drawText ("MAYA CHAMBER", Rectangle<int> (0, 14, getWidth(), 20), Justification::centred);
+    g.drawText ("MAYA CHAMBER", Rectangle<int> (0, 12, getWidth(), 20), Justification::centred);
     g.setFont (MayaIndustrialLookAndFeel::silkFont (9.0f));
     g.setColour (Colour (0xff8d8a80));
-    g.drawText ("ACOUSTIC ENVIRONMENT ENGINE  //  MODEL MC-24", Rectangle<int> (0, 34, getWidth(), 12), Justification::centred);
+    g.drawText ("ACOUSTIC ENVIRONMENT ENGINE  //  MODEL MC-24", Rectangle<int> (0, 32, getWidth(), 12), Justification::centred);
 
-    // Panel divisions: hairline bezel separators with catalog headers
+    // Panel divisions: hairline bezel separator at the top of each section, then its header
     const auto sections = getSectionRects();
-    for (int i = 0; i < (int) sections.size(); ++i)
+    for (int i = 0; i < sections.size(); ++i)
     {
-        const auto& r = sections[(size_t) i];
+        const auto r = sections[i];
         g.setColour (Colour (0xff0b0c0d));
         g.fillRect (r.getX(), r.getY(), r.getWidth(), 1);
         g.setColour (Colour (0xffffffff).withAlpha (0.08f));
@@ -96,7 +124,9 @@ void MayaChamberEditor::paint (juce::Graphics& g)
 
         g.setColour (Colour (0xffb5532f));
         g.setFont (MayaIndustrialLookAndFeel::silkFont (8.5f, true));
-        g.drawText (sectionTitles[(size_t) i], r.withTrimmedTop (4).removeFromTop (12).withTrimmedLeft (8), Justification::left);
+        g.drawText (sectionTitles[(size_t) i],
+                    Rectangle<int> (r.getX() + 8, r.getY() + 3, r.getWidth() - 16, sectionHeaderHeight - 4),
+                    Justification::left, true);
     }
 
     // Corner mounting bolts
@@ -106,34 +136,22 @@ void MayaChamberEditor::paint (juce::Graphics& g)
     drawBolt (g, { (float) getWidth() - 16.0f, (float) getHeight() - 16.0f });
 }
 
-juce::Array<juce::Rectangle<int>> MayaChamberEditor::getSectionRects() const
-{
-    // Top section (environment selector) and two knob rows
-    juce::Array<juce::Rectangle<int>> rects;
-    auto area = getLocalBounds().reduced (12);
-    area.removeFromTop (52);
-    rects.add (area.removeFromTop (44));
-    rects.add (area.removeFromTop (area.getHeight() / 2));
-    rects.add (area);
-    rects.add (juce::Rectangle<int>());
-    return rects;
-}
-
 void MayaChamberEditor::resized()
 {
-    auto area = getLocalBounds().reduced (12);
-    area.removeFromTop (52);
+    const auto sections = getSectionRects();
 
-    auto selectorRow = area.removeFromTop (44);
-    environmentSelector.setBounds (selectorRow.reduced (24, 10));
+    // Section 0: environment selector sits below its header band
+    environmentSelector.setBounds (sections[0].withTrimmedTop (sectionHeaderHeight + 6).reduced (24, 0));
 
-    const int cols = 5;
-    const int cellW = area.getWidth() / cols;
-    const int cellH = area.getHeight() / 2;
+    // Sections 1 and 2: knob rows, each cell has a label on top and the knob below
     for (int i = 0; i < (int) knobs.size(); ++i)
     {
-        auto cell = juce::Rectangle<int> (area.getX() + (i % cols) * cellW, area.getY() + (i / cols) * cellH, cellW, cellH);
-        knobLabels[i]->setBounds (cell.removeFromTop (18).reduced (2, 0));
+        const auto sec = sections[1 + i / knobCols];
+        const int col = i % knobCols;
+        const int cellW = sec.getWidth() / knobCols;
+        auto cell = juce::Rectangle<int> (sec.getX() + col * cellW, sec.getY() + sectionHeaderHeight,
+                                          cellW, sec.getHeight() - sectionHeaderHeight);
+        knobLabels[i]->setBounds (cell.removeFromTop (knobLabelHeight).reduced (2, 0));
         knobs[i]->setBounds (cell.reduced (4));
     }
 }
