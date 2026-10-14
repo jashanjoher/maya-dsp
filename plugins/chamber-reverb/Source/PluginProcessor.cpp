@@ -55,6 +55,16 @@ void MayaChamberProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     preDelay.prepare (spec);
     neuralDrive.prepare (sampleRate, samplesPerBlock);
 
+    // Dry path is delayed by the convolution latency so dry and wet stay phase-aligned.
+    dryDelay.prepare (spec);
+    dryDelay.reset();
+    dryDelay.setDelay ((float) dryLatencySamples);
+    setLatencySamples (dryLatencySamples);
+
+    // Equal-power mix ramp, 20 ms, starting at the current parameter value.
+    mixSmoothed.reset (sampleRate, 0.02);
+    mixSmoothed.setCurrentAndTargetValue (apvts.getRawParameterValue ("mix")->load());
+
     updateDspFromParameters();
 }
 
@@ -64,6 +74,7 @@ void MayaChamberProcessor::releaseResources()
     resonators.reset();
     lateTail.reset();
     preDelay.reset();
+    dryDelay.reset();
 }
 
 bool MayaChamberProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -109,15 +120,18 @@ void MayaChamberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     updateDspFromParameters();
 
     const auto numSamples = buffer.getNumSamples();
+    const auto numChannels = buffer.getNumChannels();
     const auto mix = apvts.getRawParameterValue ("mix")->load();
     const auto preDelayMs = apvts.getRawParameterValue ("predelay")->load();
+
+    mixSmoothed.setTargetValue (mix);
 
     juce::AudioBuffer<float> dry;
     dry.makeCopyOf (buffer);
 
     // 1. Pre-delay
     preDelay.setDelay ((float) (preDelayMs * 0.001 * getSampleRate()));
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    for (int ch = 0; ch < numChannels; ++ch)
         for (int n = 0; n < numSamples; ++n)
         {
             const float x = buffer.getSample (ch, n);
@@ -133,20 +147,28 @@ void MayaChamberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     // 3. Modal resonator bank
     resonators.process (buffer);
 
-    // 4. FDN late tail (adds its own output into the buffer)
+    // 4. FDN late tail (sums its output into the buffer)
     lateTail.process (buffer);
 
     // 5. Neural drive (NAM). Runs on the wet signal, before the dry/wet blend. Bypassed when off.
     neuralDrive.process (buffer);
 
-    // 6. Dry/wet mix
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        for (int n = 0; n < numSamples; ++n)
+    // 6. Dry/wet mix: equal-power crossfade with a smoothed mix value. The dry signal is
+    //    delayed by the convolution latency so it lines up with the wet signal.
+    for (int n = 0; n < numSamples; ++n)
+    {
+        const float m = mixSmoothed.getNextValue();
+        const float wetGain = std::sin (m * juce::MathConstants<float>::halfPi);
+        const float dryGain = std::cos (m * juce::MathConstants<float>::halfPi);
+
+        for (int ch = 0; ch < numChannels; ++ch)
         {
+            dryDelay.pushSample (ch, dry.getSample (ch, n));
+            const float d = dryDelay.popSample (ch);
             const float wet = buffer.getSample (ch, n);
-            const float d = dry.getSample (ch, n);
-            buffer.setSample (ch, n, d * (1.0f - mix) + wet * mix);
+            buffer.setSample (ch, n, d * dryGain + wet * wetGain);
         }
+    }
 }
 
 juce::AudioProcessorEditor* MayaChamberProcessor::createEditor()

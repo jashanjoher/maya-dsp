@@ -51,6 +51,9 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void updateDspFromParameters();
 
+    // Convolution (early reflections) latency. Dry signal is delayed by this amount.
+    static constexpr int dryLatencySamples = 512;
+
     int appliedEnvironment = -1;
     double currentSampleRate = 44100.0;
     maya::EarlyReflections earlyReflections;
@@ -59,6 +62,8 @@ private:
     maya::NeuralDrive neuralDrive;
 
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> preDelay { 96000 };
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> dryDelay { 1024 };
+    juce::SmoothedValue<float> mixSmoothed { 0.3f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MayaChamberProcessor)
 };

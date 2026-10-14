@@ -147,14 +147,15 @@ void LateFDN::process (juce::AudioBuffer<float>& buffer)
         for (int i = 0; i < numDelays; ++i)
             ((i % 2 == 0) ? left : right) += lineOut[(size_t) i];
 
+        // Accumulate the tail into the existing signal instead of overwriting it.
         if (numChannels == 1)
         {
-            buffer.setSample (0, n, (left + right) * 0.125f);
+            buffer.addSample (0, n, (left + right) * 0.125f);
         }
         else
         {
-            buffer.setSample (0, n, left * 0.25f);
-            buffer.setSample (1, n, right * 0.25f);
+            buffer.addSample (0, n, left * 0.25f);
+            buffer.addSample (1, n, right * 0.25f);
         }
     }
 }
