@@ -107,6 +107,14 @@ void MayaEchoProcessor::prepareToPlay (double sr, int samplesPerBlock)
     wowPhase = 0.0f;
     flutterPhase = 0.0f;
     noiseLp = 0.0f;
+
+    // Meters: VU ballistics use a 300 ms time constant. The NAM peak falls about 60 dB per second.
+    vuCoeff = 1.0f - std::exp (-1.0f / (0.3f * (float) sr));
+    namPeakDecay = std::pow (10.0f, -3.0f / (float) sr);
+    vuMeanSquare = 0.0f;
+    namPeakHold = 0.0f;
+    vuLevelDb.store (-60.0f);
+    namPeakDb.store (-120.0f);
 }
 
 void MayaEchoProcessor::releaseResources()
@@ -172,6 +180,8 @@ void MayaEchoProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     float* right = buffer.getWritePointer (1);
     for (int start = 0; start < numSamples; start += maxBlock)
         processChunk (left + start, right + start, juce::jmin (maxBlock, numSamples - start));
+
+    updateVuMeter (left, right, numSamples);
 }
 
 // Tilt-style colour filter: a 1 kHz one-pole split, low and high gains set by Color,
@@ -234,6 +244,14 @@ void MayaEchoProcessor::processChunk (float* left, float* right, int n)
     juce::AudioBuffer<float> feedbackView (channelPtrs, 2, n);
     neural.process (feedbackView);
 
+    // Peak meter: track the instantaneous peak at the NAM output before the limiter.
+    // The hold decays about 60 dB per second, so the LED shows fast transients.
+    for (int i = 0; i < n; ++i)
+    {
+        const float peak = juce::jmax (std::abs (namL[(size_t) i]), std::abs (namR[(size_t) i]));
+        namPeakHold = juce::jmax (peak, namPeakHold * namPeakDecay);
+    }
+
     // Soft limiter (tanh) after NAM, bounding the loop for runaway safety, then feedback gain.
     for (int i = 0; i < n; ++i)
     {
@@ -257,6 +275,23 @@ void MayaEchoProcessor::processChunk (float* left, float* right, int n)
         left[i] = xl * dryGain + tapL[(size_t) i] * wetGain;
         right[i] = xr * dryGain + tapR[(size_t) i] * wetGain;
     }
+}
+
+// Publishes meter values for the editor. Runs once per block on the audio thread, with no locks.
+void MayaEchoProcessor::updateVuMeter (const float* left, const float* right, int numSamples)
+{
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float mono = 0.5f * (left[i] * left[i] + right[i] * right[i]);
+        vuMeanSquare += vuCoeff * (mono - vuMeanSquare);
+    }
+
+    // 0 VU is defined as -18 dBFS RMS, the usual convention for a VU meter.
+    const float rmsDb = 10.0f * std::log10 (vuMeanSquare + 1.0e-12f);
+    vuLevelDb.store (rmsDb + 18.0f, std::memory_order_relaxed);
+
+    const float peakDb = 20.0f * std::log10 (juce::jmax (namPeakHold, 1.0e-6f));
+    namPeakDb.store (peakDb, std::memory_order_relaxed);
 }
 
 juce::AudioProcessorEditor* MayaEchoProcessor::createEditor()
