@@ -16,13 +16,18 @@ constexpr std::array<KnobSpec, 6> knobSpecs { {
     { "color", "Color" },
     { "mix", "Mix" },
 } };
+
+constexpr int kMeterRowHeight = 130;
+constexpr int kEditorWidth = 680;
+constexpr int kEditorHeight = 530;
+constexpr int kMeterRefreshHz = 30;
 } // namespace
 
 MayaEchoEditor::MayaEchoEditor (MayaEchoProcessor& p)
     : AudioProcessorEditor (&p), processor (p)
 {
     setLookAndFeel (&lookAndFeel);
-    setSize (680, 400);
+    setSize (kEditorWidth, kEditorHeight);
 
     for (size_t i = 0; i < knobs.size(); ++i)
     {
@@ -59,11 +64,28 @@ MayaEchoEditor::MayaEchoEditor (MayaEchoProcessor& p)
     addAndMakeVisible (pingPongToggle);
     syncAttachment = std::make_unique<ButtonAttachment> (processor.apvts, "sync", syncToggle);
     pingPongAttachment = std::make_unique<ButtonAttachment> (processor.apvts, "pingpong", pingPongToggle);
+
+    addAndMakeVisible (vuMeter);
+    addAndMakeVisible (namMeter);
+    namLabel.setText ("NAM Peak", juce::dontSendNotification);
+    namLabel.setJustificationType (juce::Justification::centred);
+    namLabel.setFont (CuteLookAndFeel::uiFont (11.0f, true));
+    addAndMakeVisible (namLabel);
+
+    startTimerHz (kMeterRefreshHz);
 }
 
 MayaEchoEditor::~MayaEchoEditor()
 {
+    stopTimer();
     setLookAndFeel (nullptr);
+}
+
+// Polls the processor's atomics. Runs on the message thread only, no locks with the audio thread.
+void MayaEchoEditor::timerCallback()
+{
+    vuMeter.setLevelDb (processor.vuLevelDb.load (std::memory_order_relaxed));
+    namMeter.setLevelDb (processor.namPeakDb.load (std::memory_order_relaxed));
 }
 
 void MayaEchoEditor::paint (juce::Graphics& g)
@@ -83,6 +105,13 @@ void MayaEchoEditor::resized()
 {
     auto area = getLocalBounds().reduced (16);
     area.removeFromTop (44);
+
+    // Meter row: VU needle on the left, NAM LED ladder beside it.
+    auto meterRow = area.removeFromTop (kMeterRowHeight);
+    auto namCell = meterRow.removeFromRight (90).reduced (8, 0);
+    namLabel.setBounds (namCell.removeFromBottom (20));
+    namMeter.setBounds (namCell);
+    vuMeter.setBounds (meterRow.reduced (8, 0));
 
     auto bottom = area.removeFromBottom (78);
 

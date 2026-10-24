@@ -4,9 +4,11 @@
 #include <memory>
 
 #include "PluginProcessor.h"
+#include "MeterComponents.h"
 #include "ui/CuteLookAndFeel.h"   // from plugins/chamber-reverb/Source/ui
 
-class MayaEchoEditor : public juce::AudioProcessorEditor
+class MayaEchoEditor : public juce::AudioProcessorEditor,
+                       private juce::Timer
 {
 public:
     explicit MayaEchoEditor (MayaEchoProcessor&);
@@ -16,6 +18,8 @@ public:
     void resized() override;
 
 private:
+    void timerCallback() override;
+
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -39,6 +43,10 @@ private:
     juce::ToggleButton syncToggle { "Sync" };
     juce::ToggleButton pingPongToggle { "Ping-Pong" };
     std::unique_ptr<ButtonAttachment> syncAttachment, pingPongAttachment;
+
+    VuMeter vuMeter;
+    LedBarMeter namMeter;
+    juce::Label namLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MayaEchoEditor)
 };
