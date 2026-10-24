@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <array>
+#include <atomic>
 #include <vector>
 
 #include "dsp/NeuralDrive.h"   // NAM wrapper, from plugins/chamber-reverb/Source/dsp
@@ -106,12 +107,19 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
+    // Meter outputs for the editor. Written on the audio thread, read on the message thread with no locks.
+    // vuLevelDb: output RMS with VU-style ballistics (about 300 ms), in VU units (0 VU = -18 dBFS).
+    // namPeakDb: peak at the NAM stage output with a 1 s decay, in dBFS. Above 0 dBFS means clipping.
+    std::atomic<float> vuLevelDb { -60.0f };
+    std::atomic<float> namPeakDb { -120.0f };
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     float param (const char* id) const { return apvts.getRawParameterValue (id)->load(); }
     double currentBpm() const;
     void processChunk (float* left, float* right, int numSamples);
     float shapeTone (int channel, float x);
+    void updateVuMeter (const float* left, const float* right, int numSamples);
 
     maya::NeuralDrive neural;
     maya::echo::EchoLine lineL, lineR;
@@ -139,6 +147,12 @@ private:
     unsigned int rng = 0x12345678u;
     double sampleRate = 44100.0;
     int maxBlock = 512;
+
+    // Meter ballistics state (audio thread only).
+    float vuMeanSquare = 0.0f;   // smoothed mean square of the output
+    float vuCoeff = 0.0f;        // one-pole coefficient for a 300 ms time constant
+    float namPeakHold = 0.0f;    // linear peak at the NAM output, held and decayed
+    float namPeakDecay = 1.0f;   // per-sample decay factor, about 60 dB per second
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MayaEchoProcessor)
 };
