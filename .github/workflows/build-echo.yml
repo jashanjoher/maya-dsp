@@ -1,0 +1,33 @@
+name: Build Maya Echo ME-24 (macOS)
+
+on:
+  push:
+    branches: [main, feature/echo-meters-dmg]
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Configure
+        run: cmake -S plugins/maya-echo -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build --config Release --verbose
+
+      - name: Ad-hoc sign and make the DMG
+        run: bash packaging/make-echo-dmg.sh
+
+      - name: Upload the DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: MayaEcho-macOS-dmg
+          path: MayaEcho-macOS.dmg
+          if-no-files-found: error
