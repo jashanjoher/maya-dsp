@@ -17,9 +17,12 @@ constexpr std::array<KnobSpec, 6> knobSpecs { {
     { "mix", "Mix" },
 } };
 
-constexpr int kMeterRowHeight = 130;
+constexpr int kMeterRowHeight = 104;
+constexpr int kVuWidth = 190;
+constexpr int kVuHeight = 92;
+constexpr int kLedWidth = 44;
 constexpr int kEditorWidth = 680;
-constexpr int kEditorHeight = 530;
+constexpr int kEditorHeight = 504;
 constexpr int kMeterRefreshHz = 30;
 } // namespace
 
@@ -67,9 +70,9 @@ MayaEchoEditor::MayaEchoEditor (MayaEchoProcessor& p)
 
     addAndMakeVisible (vuMeter);
     addAndMakeVisible (namMeter);
-    namLabel.setText ("NAM Peak", juce::dontSendNotification);
+    namLabel.setText ("NAM", juce::dontSendNotification);
     namLabel.setJustificationType (juce::Justification::centred);
-    namLabel.setFont (CuteLookAndFeel::uiFont (11.0f, true));
+    namLabel.setFont (CuteLookAndFeel::uiFont (9.0f, true));
     addAndMakeVisible (namLabel);
 
     startTimerHz (kMeterRefreshHz);
@@ -106,12 +109,12 @@ void MayaEchoEditor::resized()
     auto area = getLocalBounds().reduced (16);
     area.removeFromTop (44);
 
-    // Meter row: VU needle on the left, NAM LED ladder beside it.
+    // Meter row: a compact VU centred in the row, with a slim NAM ladder on the right.
     auto meterRow = area.removeFromTop (kMeterRowHeight);
-    auto namCell = meterRow.removeFromRight (90).reduced (8, 0);
-    namLabel.setBounds (namCell.removeFromBottom (20));
-    namMeter.setBounds (namCell);
-    vuMeter.setBounds (meterRow.reduced (8, 0));
+    auto namCell = meterRow.removeFromRight (kLedWidth + 16).reduced (8, 0);
+    namLabel.setBounds (namCell.removeFromBottom (14));
+    namMeter.setBounds (namCell.withSizeKeepingCentre (kLedWidth, namCell.getHeight()));
+    vuMeter.setBounds (meterRow.withSizeKeepingCentre (kVuWidth, kVuHeight));
 
     auto bottom = area.removeFromBottom (78);
 
