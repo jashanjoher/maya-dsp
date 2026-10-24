@@ -17,12 +17,11 @@ constexpr std::array<KnobSpec, 6> knobSpecs { {
     { "mix", "Mix" },
 } };
 
-constexpr int kMeterRowHeight = 104;
-constexpr int kVuWidth = 190;
-constexpr int kVuHeight = 92;
-constexpr int kLedWidth = 44;
 constexpr int kEditorWidth = 680;
-constexpr int kEditorHeight = 504;
+constexpr int kEditorHeight = 380;
+constexpr int kTitleHeight = 40;
+constexpr int kLevelBarHeight = 18;
+constexpr int kLevelBarGap = 12;
 constexpr int kMeterRefreshHz = 30;
 } // namespace
 
@@ -31,6 +30,8 @@ MayaEchoEditor::MayaEchoEditor (MayaEchoProcessor& p)
 {
     setLookAndFeel (&lookAndFeel);
     setSize (kEditorWidth, kEditorHeight);
+
+    addAndMakeVisible (levelBar);
 
     for (size_t i = 0; i < knobs.size(); ++i)
     {
@@ -68,13 +69,6 @@ MayaEchoEditor::MayaEchoEditor (MayaEchoProcessor& p)
     syncAttachment = std::make_unique<ButtonAttachment> (processor.apvts, "sync", syncToggle);
     pingPongAttachment = std::make_unique<ButtonAttachment> (processor.apvts, "pingpong", pingPongToggle);
 
-    addAndMakeVisible (vuMeter);
-    addAndMakeVisible (namMeter);
-    namLabel.setText ("NAM", juce::dontSendNotification);
-    namLabel.setJustificationType (juce::Justification::centred);
-    namLabel.setFont (CuteLookAndFeel::uiFont (9.0f, true));
-    addAndMakeVisible (namLabel);
-
     startTimerHz (kMeterRefreshHz);
 }
 
@@ -84,11 +78,10 @@ MayaEchoEditor::~MayaEchoEditor()
     setLookAndFeel (nullptr);
 }
 
-// Polls the processor's atomics. Runs on the message thread only, no locks with the audio thread.
+// Polls the processor's output level. Runs on the message thread only, no locks with the audio thread.
 void MayaEchoEditor::timerCallback()
 {
-    vuMeter.setLevelDb (processor.vuLevelDb.load (std::memory_order_relaxed));
-    namMeter.setLevelDb (processor.namPeakDb.load (std::memory_order_relaxed));
+    levelBar.setLevelDb (processor.outputLevelDb.load (std::memory_order_relaxed));
 }
 
 void MayaEchoEditor::paint (juce::Graphics& g)
@@ -101,20 +94,17 @@ void MayaEchoEditor::paint (juce::Graphics& g)
 
     g.setColour (CuteLookAndFeel::ink());
     g.setFont (CuteLookAndFeel::uiFont (22.0f, true));
-    g.drawText ("Maya Echo ME-24", getLocalBounds().removeFromTop (44), juce::Justification::centred, false);
+    g.drawText ("Maya Echo ME-24", getLocalBounds().removeFromTop (kTitleHeight), juce::Justification::centred, false);
 }
 
 void MayaEchoEditor::resized()
 {
     auto area = getLocalBounds().reduced (16);
-    area.removeFromTop (44);
+    area.removeFromTop (kTitleHeight);
 
-    // Meter row: a compact VU centred in the row, with a slim NAM ladder on the right.
-    auto meterRow = area.removeFromTop (kMeterRowHeight);
-    auto namCell = meterRow.removeFromRight (kLedWidth + 16).reduced (8, 0);
-    namLabel.setBounds (namCell.removeFromBottom (14));
-    namMeter.setBounds (namCell.withSizeKeepingCentre (kLedWidth, namCell.getHeight()));
-    vuMeter.setBounds (meterRow.withSizeKeepingCentre (kVuWidth, kVuHeight));
+    // Level bar across the full width, directly under the title.
+    levelBar.setBounds (area.removeFromTop (kLevelBarHeight));
+    area.removeFromTop (kLevelBarGap);
 
     auto bottom = area.removeFromBottom (78);
 

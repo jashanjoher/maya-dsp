@@ -34,6 +34,8 @@ private:
     MayaEchoProcessor& processor;
     CuteLookAndFeel lookAndFeel;
 
+    LevelBar levelBar;
+
     std::array<Knob, 6> knobs;
 
     juce::Label envLabel, divisionLabel;
@@ -43,10 +45,6 @@ private:
     juce::ToggleButton syncToggle { "Sync" };
     juce::ToggleButton pingPongToggle { "Ping-Pong" };
     std::unique_ptr<ButtonAttachment> syncAttachment, pingPongAttachment;
-
-    VuMeter vuMeter;
-    LedBarMeter namMeter;
-    juce::Label namLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MayaEchoEditor)
 };

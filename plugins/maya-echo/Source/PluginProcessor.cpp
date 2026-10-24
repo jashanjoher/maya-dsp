@@ -11,6 +11,14 @@ namespace maya::echo
 constexpr float kMaxFeedback = 0.92f;
 constexpr float kLoopCeiling = 0.5f;
 
+// NAM headroom: amp-style NAM models are calibrated for a input around -18 dBFS. Feeding them full-scale
+// signal drives them deep into saturation. The feedback is trimmed down before NAM and restored after it.
+constexpr float kNamInputTrimDb = -18.0f;
+constexpr float kNamOutputTrimDb = 18.0f;
+
+// DC blocker after NAM, a one-pole high-pass at about 20 Hz at 48 kHz. Removes any offset the model adds.
+constexpr float kDcBlockR = 0.9974f;
+
 const EnvironmentProfile& getEnvironmentProfile (int index)
 {
     // First-pass per-environment tuning, not measured. Names are placeholders for the ME-24 selector.
@@ -66,7 +74,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout MayaEchoProcessor::createPar
     params.push_back (std::make_unique<AudioParameterChoice> (ParameterID { "division", 1 }, "Division", divisions, 3));
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "feedback", 1 }, "Feedback", NormalisableRange<float> (0.0f, 110.0f, 0.1f), 45.0f, "%"));
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "wowflutter", 1 }, "Wow/Flutter", NormalisableRange<float> (0.0f, 100.0f, 0.1f), 20.0f, "%"));
-    params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "drive", 1 }, "Neural Drive", NormalisableRange<float> (0.0f, 24.0f, 0.01f), 6.0f, "dB"));
+    // Default 0 dB: the drive knob now adds gain on top of the -18 dB NAM input trim, so 0 dB is the calibrated setting.
+    params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "drive", 1 }, "Neural Drive", NormalisableRange<float> (0.0f, 24.0f, 0.01f), 0.0f, "dB"));
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "color", 1 }, "Color", NormalisableRange<float> (-1.0f, 1.0f, 0.001f), 0.0f));
     params.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "mix", 1 }, "Mix", NormalisableRange<float> (0.0f, 100.0f, 0.1f), 35.0f, "%"));
     params.push_back (std::make_unique<AudioParameterBool> (ParameterID { "pingpong", 1 }, "Ping-Pong", true));
@@ -106,6 +115,8 @@ void MayaEchoProcessor::prepareToPlay (double sr, int samplesPerBlock)
 
     lpTilt.fill (0.0f);
     lpEnv.fill (0.0f);
+    dcX.fill (0.0f);
+    dcY.fill (0.0f);
     tiltCoeff = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 1000.0f / (float) sr);
     wowInc = juce::MathConstants<float>::twoPi * 0.6f / (float) sr;
     flutterInc = juce::MathConstants<float>::twoPi * 7.0f / (float) sr;
@@ -113,12 +124,12 @@ void MayaEchoProcessor::prepareToPlay (double sr, int samplesPerBlock)
     flutterPhase = 0.0f;
     noiseLp = 0.0f;
 
-    // Meters: VU ballistics use a 300 ms time constant. The NAM peak falls about 60 dB per second.
+    // Meters: RMS ballistics use a 300 ms time constant. The NAM peak falls about 60 dB per second.
     vuCoeff = 1.0f - std::exp (-1.0f / (0.3f * (float) sr));
     namPeakDecay = std::pow (10.0f, -3.0f / (float) sr);
     vuMeanSquare = 0.0f;
     namPeakHold = 0.0f;
-    vuLevelDb.store (-60.0f);
+    outputLevelDb.store (-60.0f);
     namPeakDb.store (-120.0f);
 }
 
@@ -128,6 +139,8 @@ void MayaEchoProcessor::releaseResources()
     lineR.reset();
     lpTilt.fill (0.0f);
     lpEnv.fill (0.0f);
+    dcX.fill (0.0f);
+    dcY.fill (0.0f);
 }
 
 bool MayaEchoProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -167,7 +180,7 @@ void MayaEchoProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     delaySmooth.setTargetValue (timeMs * 0.001f * (float) sampleRate);
 
     feedbackSmooth.setTargetValue (juce::jmin (param ("feedback") * 0.01f, maya::echo::kMaxFeedback));
-    mixSmooth.setTargetValue (param ("mix") * 0.01f);
+    mixSmooth.setTargetValue (juce::jlimit (0.0f, 1.0f, param ("mix") * 0.01f));
     wowDepth = param ("wowflutter") * 0.01f;
     pingPong = param ("pingpong") > 0.5f;
     tiltAmount = juce::jlimit (-1.0f, 1.0f, param ("color"));
@@ -201,6 +214,25 @@ float MayaEchoProcessor::shapeTone (int channel, float x)
     auto& env = lpEnv[(size_t) channel];
     env += envCoeff * (tilted - env);
     return env;
+}
+
+// One-pole DC blocker. Also resets its state if a non-finite value appears, so NaN or inf never enters the loop.
+float MayaEchoProcessor::dcBlock (int channel, float x)
+{
+    auto& xPrev = dcX[(size_t) channel];
+    auto& yPrev = dcY[(size_t) channel];
+
+    float y = x - xPrev + maya::echo::kDcBlockR * yPrev;
+    xPrev = x;
+
+    if (! std::isfinite (y))
+    {
+        y = 0.0f;
+        xPrev = 0.0f;
+    }
+
+    yPrev = y;
+    return y;
 }
 
 void MayaEchoProcessor::processChunk (float* left, float* right, int n)
@@ -238,16 +270,26 @@ void MayaEchoProcessor::processChunk (float* left, float* right, int n)
     // Phase 2: feedback path. Ping-pong crosses the taps so echoes bounce between channels.
     const auto& srcL = pingPong ? tapR : tapL;
     const auto& srcR = pingPong ? tapL : tapR;
+    const float namInTrim = juce::Decibels::decibelsToGain (maya::echo::kNamInputTrimDb);
+    const float namOutTrim = juce::Decibels::decibelsToGain (maya::echo::kNamOutputTrimDb);
+
     for (int i = 0; i < n; ++i)
     {
-        namL[(size_t) i] = shapeTone (0, srcL[(size_t) i]);
-        namR[(size_t) i] = shapeTone (1, srcR[(size_t) i]);
+        namL[(size_t) i] = shapeTone (0, srcL[(size_t) i]) * namInTrim;
+        namR[(size_t) i] = shapeTone (1, srcR[(size_t) i]) * namInTrim;
     }
 
     // NAM tape/transformer saturation inside the loop (NeuralDrive, one model per channel).
     float* channelPtrs[2] = { namL.data(), namR.data() };
     juce::AudioBuffer<float> feedbackView (channelPtrs, 2, n);
     neural.process (feedbackView);
+
+    // Restore level after NAM, then remove any DC offset the model added.
+    for (int i = 0; i < n; ++i)
+    {
+        namL[(size_t) i] = dcBlock (0, namL[(size_t) i] * namOutTrim);
+        namR[(size_t) i] = dcBlock (1, namR[(size_t) i] * namOutTrim);
+    }
 
     // Peak meter: track the instantaneous peak at the NAM output before the limiter.
     // The hold decays about 60 dB per second, so the LED shows fast transients.
@@ -291,9 +333,7 @@ void MayaEchoProcessor::updateVuMeter (const float* left, const float* right, in
         vuMeanSquare += vuCoeff * (mono - vuMeanSquare);
     }
 
-    // 0 VU is defined as -18 dBFS RMS, the usual convention for a VU meter.
-    const float rmsDb = 10.0f * std::log10 (vuMeanSquare + 1.0e-12f);
-    vuLevelDb.store (rmsDb + 18.0f, std::memory_order_relaxed);
+    outputLevelDb.store (10.0f * std::log10 (vuMeanSquare + 1.0e-12f), std::memory_order_relaxed);
 
     const float peakDb = 20.0f * std::log10 (juce::jmax (namPeakHold, 1.0e-6f));
     namPeakDb.store (peakDb, std::memory_order_relaxed);

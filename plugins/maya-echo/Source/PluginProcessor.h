@@ -108,9 +108,9 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
     // Meter outputs for the editor. Written on the audio thread, read on the message thread with no locks.
-    // vuLevelDb: output RMS with VU-style ballistics (about 300 ms), in VU units (0 VU = -18 dBFS).
+    // outputLevelDb: smoothed RMS of the stereo output, in dBFS (about 300 ms ballistics).
     // namPeakDb: peak at the NAM stage output with a 1 s decay, in dBFS. Above 0 dBFS means clipping.
-    std::atomic<float> vuLevelDb { -60.0f };
+    std::atomic<float> outputLevelDb { -60.0f };
     std::atomic<float> namPeakDb { -120.0f };
 
 private:
@@ -119,6 +119,7 @@ private:
     double currentBpm() const;
     void processChunk (float* left, float* right, int numSamples);
     float shapeTone (int channel, float x);
+    float dcBlock (int channel, float x);
     void updateVuMeter (const float* left, const float* right, int numSamples);
 
     maya::NeuralDrive neural;
@@ -131,6 +132,8 @@ private:
     std::vector<float> tapL, tapR, namL, namR;
     std::array<float, 2> lpTilt { 0.0f, 0.0f };
     std::array<float, 2> lpEnv { 0.0f, 0.0f };
+    std::array<float, 2> dcX { 0.0f, 0.0f };
+    std::array<float, 2> dcY { 0.0f, 0.0f };
 
     float tiltCoeff = 0.0f;
     float envCoeff = 1.0f;
