@@ -6,6 +6,11 @@
 
 namespace maya::echo
 {
+// Feedback stability: a loop gain above 1 never decays, and the tanh stage then turns every repeat into a full-scale square wave.
+// kMaxFeedback keeps the total loop gain under unity after the NAM stage. kLoopCeiling bounds each repeat to about -6 dBFS.
+constexpr float kMaxFeedback = 0.92f;
+constexpr float kLoopCeiling = 0.5f;
+
 const EnvironmentProfile& getEnvironmentProfile (int index)
 {
     // First-pass per-environment tuning, not measured. Names are placeholders for the ME-24 selector.
@@ -161,7 +166,7 @@ void MayaEchoProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     timeMs = juce::jlimit (1.0f, 2000.0f, timeMs);
     delaySmooth.setTargetValue (timeMs * 0.001f * (float) sampleRate);
 
-    feedbackSmooth.setTargetValue (param ("feedback") * 0.01f);
+    feedbackSmooth.setTargetValue (juce::jmin (param ("feedback") * 0.01f, maya::echo::kMaxFeedback));
     mixSmooth.setTargetValue (param ("mix") * 0.01f);
     wowDepth = param ("wowflutter") * 0.01f;
     pingPong = param ("pingpong") > 0.5f;
@@ -256,8 +261,8 @@ void MayaEchoProcessor::processChunk (float* left, float* right, int n)
     for (int i = 0; i < n; ++i)
     {
         const float fb = feedbackSmooth.getNextValue();
-        namL[(size_t) i] = fb * std::tanh (namL[(size_t) i]);
-        namR[(size_t) i] = fb * std::tanh (namR[(size_t) i]);
+        namL[(size_t) i] = fb * maya::echo::kLoopCeiling * std::tanh (namL[(size_t) i] / maya::echo::kLoopCeiling);
+        namR[(size_t) i] = fb * maya::echo::kLoopCeiling * std::tanh (namR[(size_t) i] / maya::echo::kLoopCeiling);
     }
 
     // Phase 3: write input plus feedback, and produce the equal-power dry/wet output.
@@ -272,8 +277,8 @@ void MayaEchoProcessor::processChunk (float* left, float* right, int n)
         const float wetGain = std::sin (m * juce::MathConstants<float>::halfPi);
         const float dryGain = std::cos (m * juce::MathConstants<float>::halfPi);
 
-        left[i] = xl * dryGain + tapL[(size_t) i] * wetGain;
-        right[i] = xr * dryGain + tapR[(size_t) i] * wetGain;
+        left[i] = juce::jlimit (-1.0f, 1.0f, xl * dryGain + tapL[(size_t) i] * wetGain);
+        right[i] = juce::jlimit (-1.0f, 1.0f, xr * dryGain + tapR[(size_t) i] * wetGain);
     }
 }
 
